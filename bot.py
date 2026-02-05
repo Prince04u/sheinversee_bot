@@ -21,38 +21,51 @@ if not BOT_TOKEN or not ADMIN_ID:
 # =========================
 categories = []
 last_fingerprint = {}
-last_count = {}
+last_signal = {}
 
 # =========================
-# HTTP
+# HTTP HEADERS
 # =========================
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/120.0.0.0 Safari/537.36"
-    )
+    ),
+    "Accept-Language": "en-IN,en;q=0.9",
 }
 
+# =========================
+# FINGERPRINT & SIGNAL
+# =========================
 def make_fingerprint(html: str) -> str:
     text = html.lower()
 
-    signals = [
+    keywords = [
         "out of stock",
         "sold out",
         "add to bag",
         "add to cart",
         "notify me",
-        "size"
+        "size",
+        "product"
     ]
 
-    sig_count = "|".join(f"{s}:{text.count(s)}" for s in signals)
-    core = f"{len(text)}|{sig_count}|{text[:1500]}|{text[-1500:]}"
+    sig = "|".join(f"{k}:{text.count(k)}" for k in keywords)
+    core = f"{len(text)}|{sig}|{text[:1200]}|{text[-1200:]}"
     return hashlib.sha256(core.encode("utf-8", errors="ignore")).hexdigest()
 
-def estimate_count(html: str) -> int:
-    # very rough but effective signal
-    return html.lower().count("product")
+def estimate_stock_signal(html: str) -> int:
+    text = html.lower()
+    signals = [
+        "product",
+        "add to bag",
+        "add to cart",
+        "size",
+        "sold out",
+        "out of stock"
+    ]
+    return sum(text.count(s) for s in signals)
 
 # =========================
 # COMMANDS
@@ -66,7 +79,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/addcategory <url>\n"
         "/list\n"
         "/remove <index>\n\n"
-        "🔔 Cloud-safe category change alerts enabled"
+        "🔔 Approx stock delta + size activity alerts enabled\n"
+        "☁️ Cloud-safe (no browser)"
     )
 
 async def addcategory(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -81,7 +95,7 @@ async def addcategory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if url not in categories:
         categories.append(url)
         last_fingerprint[url] = None
-        last_count[url] = None
+        last_signal[url] = None
         await update.message.reply_text("✅ Category added")
     else:
         await update.message.reply_text("ℹ️ Already added")
@@ -105,7 +119,7 @@ async def remove_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
         idx = int(context.args[0]) - 1
         url = categories.pop(idx)
         last_fingerprint.pop(url, None)
-        last_count.pop(url, None)
+        last_signal.pop(url, None)
         await update.message.reply_text("🗑 Category removed")
     except:
         await update.message.reply_text("❌ Invalid index")
@@ -120,24 +134,32 @@ async def scan_job(context: ContextTypes.DEFAULT_TYPE):
             html = r.text
 
             fp = make_fingerprint(html)
-            count = estimate_count(html)
+            signal = estimate_stock_signal(html)
 
+            # first run baseline
             if last_fingerprint[url] is None:
                 last_fingerprint[url] = fp
-                last_count[url] = count
+                last_signal[url] = signal
                 continue
 
-            if fp != last_fingerprint[url] or count != last_count[url]:
+            if fp != last_fingerprint[url] or signal != last_signal[url]:
+                prev_signal = last_signal[url]
+                delta = signal - prev_signal if prev_signal is not None else 0
+
                 last_fingerprint[url] = fp
-                last_count[url] = count
+                last_signal[url] = signal
 
                 now = datetime.now().strftime("%I:%M %p")
 
                 msg = (
                     "🚨 SHEINVERSE CATEGORY UPDATED\n"
                     f"🕒 {now}\n\n"
-                    "Stock count changed\n"
-                    "Possible new products added with size need\n\n"
+                    "Approx stock activity detected\n\n"
+                    f"Previous signals : {prev_signal}\n"
+                    f"Current signals  : {signal}\n"
+                    f"Δ Change         : {delta:+}\n\n"
+                    "Size availability likely updated\n"
+                    "(new sizes added / restocked)\n\n"
                     f"{url}"
                 )
 
