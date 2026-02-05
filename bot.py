@@ -148,6 +148,8 @@ async def remove_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 prev_stats = {}
 
+prev_stats = {}
+
 async def scan_job(context):
     for url in categories:
         try:
@@ -155,9 +157,8 @@ async def scan_job(context):
             now = datetime.now().strftime("%I:%M %p")
 
             if url not in prev_stats:
-    prev_stats[url] = (total, buckets)
-    continue
-
+                prev_stats[url] = (total, buckets)
+                continue   # ⚠️ return nahi
 
             prev_total, _ = prev_stats[url]
 
@@ -185,7 +186,7 @@ async def scan_job(context):
                     text="\n".join(msg)
                 )
 
-        except Exception:
+        except Exception as e:
             await context.bot.send_message(
                 chat_id=ADMIN_ID,
                 text="⚠️ Analytics scan failed"
@@ -206,6 +207,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
