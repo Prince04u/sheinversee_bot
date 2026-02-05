@@ -50,7 +50,7 @@ prev_stats = {}
 # =========================
 async def fetch_category_stats(url):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(     headless=True,     executable_path="/root/.cache/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-linux64/chrome-headless-shell" )
+        browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
         await page.goto(url, wait_until="networkidle", timeout=60000)
 
@@ -59,7 +59,6 @@ async def fetch_category_stats(url):
         )
 
         prices = []
-
         for c in cards:
             for sel in [".price", ".product-price", "[data-testid*='price']"]:
                 el = await c.query_selector(sel)
@@ -71,6 +70,8 @@ async def fetch_category_stats(url):
                         break
 
         await browser.close()
+        ...
+
 
         total = len(prices)
         buckets = {bucket_label(lo, hi): 0 for lo, hi in PRICE_BUCKETS}
@@ -195,6 +196,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
