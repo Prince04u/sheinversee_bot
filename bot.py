@@ -171,11 +171,11 @@ async def scan_job(context: ContextTypes.DEFAULT_TYPE):
                     text="\n".join(msg)
                 )
 
-       except Exception as e:
-    await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=f"⚠️ Analytics scan failed:\n{str(e)[:350]}"
-    )
+        except Exception as e:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=f"⚠️ Analytics scan failed:\n{str(e)[:300]}"
+            )
 
 
 # =========================
@@ -195,4 +195,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
