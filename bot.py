@@ -50,7 +50,7 @@ prev_stats = {}
 # =========================
 async def fetch_category_stats(url):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(     headless=True,     executable_path="/root/.cache/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-linux64/chrome-headless-shell" )
         page = await browser.new_page()
         await page.goto(url, wait_until="networkidle", timeout=60000)
 
@@ -195,5 +195,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
