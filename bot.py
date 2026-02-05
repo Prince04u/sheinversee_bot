@@ -1,7 +1,22 @@
+import os
 import hashlib
 import requests
+import re
+from datetime import datetime
+
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+
+from playwright.async_api import async_playwright
+
+BOT_TOKEN = os.getenv("8599224488:AAHConLJRAcg56Xf3C0nHZUZGvLsy_EWTpw")
+ADMIN_ID = int(os.getenv("8434008747"))
+CHECK_INTERVAL = 60
+
+if not BOT_TOKEN or not ADMIN_ID:
+    raise RuntimeError("BOT_TOKEN or ADMIN_ID missing in environment variables")
+
+
 
 PRICE_BUCKETS = [
     (0, 500),
@@ -140,8 +155,9 @@ async def scan_job(context):
             now = datetime.now().strftime("%I:%M %p")
 
             if url not in prev_stats:
-                prev_stats[url] = (total, buckets)
-                return
+    prev_stats[url] = (total, buckets)
+    continue
+
 
             prev_total, _ = prev_stats[url]
 
@@ -190,5 +206,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
