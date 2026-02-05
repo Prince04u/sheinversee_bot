@@ -50,9 +50,11 @@ prev_stats = {}
 # =========================
 async def fetch_category_stats(url):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(     headless=True,     args=[         "--no-sandbox",         "--disable-dev-shm-usage",         "--disable-blink-features=AutomationControlled",         "--disable-infobars",         "--disable-gpu",         "--window-size=1366,768",     ] )
         page = await browser.new_page()
-        await page.goto(url, wait_until="networkidle", timeout=60000)
+       await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+await page.wait_for_timeout(3000)
+
 
         cards = await page.query_selector_all(
             "[data-testid*='product'], .product-card, .product-item"
@@ -196,6 +198,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
