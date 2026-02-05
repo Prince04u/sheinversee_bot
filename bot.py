@@ -1,8 +1,60 @@
 import hashlib
 import requests
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from config import BOT_TOKEN, ADMIN_ID, CHECK_INTERVAL
+from playwright.async_api import async_playwright
+import re
+from datetime import datetime
+
+PRICE_BUCKETS = [
+    (0, 500),
+    (500, 1000),
+    (1000, 2000),
+    (2000, 3000),
+]
+
+def bucket_label(lo, hi):
+    if hi == 3000:
+        return "₹2000–₹3000"
+    if lo == 0:
+        return "Below ₹500"
+    return f"₹{lo}–₹{hi}"
+
+def parse_price(text):
+    m = re.search(r'₹?\s*([\d,]+)', text.replace(',', ''))
+    return int(m.group(1)) if m else None
+
+async def fetch_category_stats(url):
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        await page.goto(url, wait_until="networkidle", timeout=60000)
+
+        cards = await page.query_selector_all(
+            "[data-testid*='product'], .product-card, .product-item"
+        )
+
+        prices = []
+        for c in cards:
+            for sel in [".price", ".product-price", "[data-testid*='price']"]:
+                el = await c.query_selector(sel)
+                if el:
+                    txt = await el.inner_text()
+                    val = parse_price(txt)
+                    if val:
+                        prices.append(val)
+                        break
+
+        await browser.close()
+
+        total = len(prices)
+        buckets = {bucket_label(lo, hi): 0 for lo, hi in PRICE_BUCKETS}
+
+        for pr in prices:
+            for lo, hi in PRICE_BUCKETS:
+                if lo <= pr < hi:
+                    buckets[bucket_label(lo, hi)] += 1
+                    break
+
+        return total, buckets
 
 # Storage (RAM)
 categories = []
@@ -80,34 +132,48 @@ async def remove_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("❌ Invalid index")
 
-async def scan_job(context: ContextTypes.DEFAULT_TYPE):
+prev_stats = {}
+
+async def scan_job(context):
     for url in categories:
         try:
-            r = requests.get(url, headers=HEADERS, timeout=20)
-            html = r.text or ""
-            fp = page_fingerprint(html)
+            total, buckets = await fetch_category_stats(url)
+            now = datetime.now().strftime("%I:%M %p")
 
-            if last_fingerprint.get(url) is None:
-                # First scan – baseline set
-                last_fingerprint[url] = fp
-            else:
-                if fp != last_fingerprint[url]:
-                    last_fingerprint[url] = fp
-                    await context.bot.send_message(
-                        chat_id=ADMIN_ID,
-                        text=(
-                            "🚨 CATEGORY UPDATE DETECTED\n"
-                            "Possible new stock / change\n\n"
-                            f"{url}"
-                        )
-                    )
+            if url not in prev_stats:
+                prev_stats[url] = (total, buckets)
+                return
+
+            prev_total, _ = prev_stats[url]
+
+            if total != prev_total:
+                diff = total - prev_total
+                prev_stats[url] = (total, buckets)
+
+                msg = [
+                    "📈 SHEINVERSE – MEN STOCK INCREASED",
+                    f"🕒 {now}",
+                    "",
+                    f"🆕 New SKUs added : {max(diff, 0)}",
+                    f"Previous stock  : {prev_total}",
+                    f"Current stock   : {total}",
+                    ""
+                ]
+
+                for k, v in buckets.items():
+                    msg.append(f"{k} : {v}")
+
+                msg.append("\n🔥 Go and Buy !!!")
+
+                await context.bot.send_message(
+                    chat_id=ADMIN_ID,
+                    text="\n".join(msg)
+                )
+
         except Exception:
             await context.bot.send_message(
                 chat_id=ADMIN_ID,
-                text=(
-                    "⚠️ Scan error on category\n"
-                    f"{url}"
-                )
+                text="⚠️ Analytics scan failed"
             )
 
 def main():
@@ -125,3 +191,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
