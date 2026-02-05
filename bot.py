@@ -1,11 +1,10 @@
 import os
-import re
+import hashlib
+import requests
 from datetime import datetime
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-
-from playwright.async_api import async_playwright
 
 # =========================
 # ENV VARIABLES
@@ -18,49 +17,42 @@ if not BOT_TOKEN or not ADMIN_ID:
     raise RuntimeError("BOT_TOKEN or ADMIN_ID missing")
 
 # =========================
-# STORAGE
+# STORAGE (RAM)
 # =========================
 categories = []
+last_fingerprint = {}
 last_count = {}
 
 # =========================
-# UTILS
+# HTTP
 # =========================
-def extract_prices(text: str):
-    prices = re.findall(r"₹\s?([\d,]+)", text)
-    return [int(p.replace(",", "")) for p in prices]
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
 
-# =========================
-# PLAYWRIGHT SCAN
-# =========================
-async def scan_category(url: str):
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-            ],
-        )
+def make_fingerprint(html: str) -> str:
+    text = html.lower()
 
-        page = await browser.new_page(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1366, "height": 768},
-        )
+    signals = [
+        "out of stock",
+        "sold out",
+        "add to bag",
+        "add to cart",
+        "notify me",
+        "size"
+    ]
 
-        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_timeout(4000)
+    sig_count = "|".join(f"{s}:{text.count(s)}" for s in signals)
+    core = f"{len(text)}|{sig_count}|{text[:1500]}|{text[-1500:]}"
+    return hashlib.sha256(core.encode("utf-8", errors="ignore")).hexdigest()
 
-        content = await page.content()
-        await browser.close()
-
-        prices = extract_prices(content)
-        return len(prices), prices
+def estimate_count(html: str) -> int:
+    # very rough but effective signal
+    return html.lower().count("product")
 
 # =========================
 # COMMANDS
@@ -70,11 +62,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text(
-        "🔥 Sheinverse Bot ONLINE (FULL ANALYTICS MODE)\n\n"
+        "✅ SHEINVERSE CATEGORY BOT ONLINE (HYBRID MODE)\n\n"
         "/addcategory <url>\n"
         "/list\n"
         "/remove <index>\n\n"
-        "⚠️ Aggressive mode (site may block sometimes)"
+        "🔔 Cloud-safe category change alerts enabled"
     )
 
 async def addcategory(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -88,6 +80,7 @@ async def addcategory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = context.args[0]
     if url not in categories:
         categories.append(url)
+        last_fingerprint[url] = None
         last_count[url] = None
         await update.message.reply_text("✅ Category added")
     else:
@@ -111,52 +104,52 @@ async def remove_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         idx = int(context.args[0]) - 1
         url = categories.pop(idx)
+        last_fingerprint.pop(url, None)
         last_count.pop(url, None)
-        await update.message.reply_text("🗑 Removed")
+        await update.message.reply_text("🗑 Category removed")
     except:
         await update.message.reply_text("❌ Invalid index")
 
 # =========================
-# BACKGROUND JOB
+# BACKGROUND SCAN
 # =========================
 async def scan_job(context: ContextTypes.DEFAULT_TYPE):
     for url in categories:
         try:
-            count, prices = await scan_category(url)
+            r = requests.get(url, headers=HEADERS, timeout=30)
+            html = r.text
 
-            if last_count[url] is None:
+            fp = make_fingerprint(html)
+            count = estimate_count(html)
+
+            if last_fingerprint[url] is None:
+                last_fingerprint[url] = fp
                 last_count[url] = count
-                return
+                continue
 
-            if count != last_count[url]:
-                diff = count - last_count[url]
+            if fp != last_fingerprint[url] or count != last_count[url]:
+                last_fingerprint[url] = fp
                 last_count[url] = count
 
                 now = datetime.now().strftime("%I:%M %p")
 
-                msg = [
-                    "📈 SHEINVERSE – CATEGORY UPDATE",
-                    f"🕒 {now}",
-                    "",
-                    f"Previous stock : {count - diff}",
-                    f"Current stock  : {count}",
-                    f"Change         : {diff:+}",
-                ]
-
-                if prices:
-                    msg.append("")
-                    msg.append(f"Min price ₹{min(prices)}")
-                    msg.append(f"Max price ₹{max(prices)}")
+                msg = (
+                    "🚨 SHEINVERSE CATEGORY UPDATED\n"
+                    f"🕒 {now}\n\n"
+                    "Stock count changed\n"
+                    "Possible new products added with size need\n\n"
+                    f"{url}"
+                )
 
                 await context.bot.send_message(
                     chat_id=ADMIN_ID,
-                    text="\n".join(msg)
+                    text=msg
                 )
 
-        except Exception as e:
+        except Exception:
             await context.bot.send_message(
                 chat_id=ADMIN_ID,
-                text=f"⚠️ Analytics failed:\n{str(e)[:300]}"
+                text="⚠️ Category scan failed (network issue)"
             )
 
 # =========================
@@ -172,7 +165,7 @@ def main():
 
     app.job_queue.run_repeating(scan_job, interval=CHECK_INTERVAL, first=15)
 
-    print("Bot started (FULL ANALYTICS MODE)")
+    print("Sheinverse hybrid bot started")
     app.run_polling()
 
 if __name__ == "__main__":
