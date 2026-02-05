@@ -1,8 +1,7 @@
 import hashlib
 import requests
-from playwright.async_api import async_playwright
-import re
-from datetime import datetime
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 PRICE_BUCKETS = [
     (0, 500),
@@ -191,4 +190,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
